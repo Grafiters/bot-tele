@@ -1,0 +1,7 @@
+services:
+  telegram-log-bot:
+    build: .
+    container_name: telegram-log-bot
+    restart: unless-stopped
+    env_file:
+      - .env
