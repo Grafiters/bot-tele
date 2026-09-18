@@ -1,12 +1,14 @@
 import type { Context } from "telegraf";
-import { SERVICES } from "../service-registry";
+import { getServices } from "../service-registry";
 
 export async function handleServicesCommand(ctx: Context): Promise<void> {
-  const lines = SERVICES.map((service) => {
+  const services = getServices();
+
+  const lines = services.map((service) => {
     const buildLine = service.buildTarget ? `  build:  make ${service.buildTarget}\n` : "";
     const deployLine = service.deployTarget
       ? `  deploy: make ${service.deployTarget} (1 step, sudah termasuk pull+build+up)\n`
-      : `  deploy: pull -> ${service.buildTarget ? "build -> " : ""}up (disusun manual, tidak ada target deploy-* di Makefile)\n`;
+      : `  deploy: pull -> ${service.buildTarget ? "build -> " : ""}up (disusun manual, "deploy" belum diisi di config)\n`;
 
     return (
       `• ${service.id}\n` +
@@ -18,5 +20,5 @@ export async function handleServicesCommand(ctx: Context): Promise<void> {
     ).trimEnd();
   });
 
-  await ctx.reply(`Service yang terdaftar di bot:\n\n${lines.join("\n\n")}`);
+  await ctx.reply(`Service yang terdaftar (dari config/services.yml):\n\n${lines.join("\n\n")}`);
 }

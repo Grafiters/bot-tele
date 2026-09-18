@@ -1,12 +1,12 @@
 import { Markup } from "telegraf";
 import type { Context } from "telegraf";
-import { SERVICES, findService } from "../service-registry";
+import { getServices, findService } from "../service-registry";
 import { runRemoteCommand } from "../ssh-client";
 import { sendLongMessage } from "../utils/send-long-message";
 
 function serviceKeyboard(prefix: string) {
   return Markup.inlineKeyboard(
-    SERVICES.map((service) => [Markup.button.callback(service.id, `${prefix}:${service.id}`)])
+    getServices().map((service) => [Markup.button.callback(service.id, `${prefix}:${service.id}`)])
   );
 }
 

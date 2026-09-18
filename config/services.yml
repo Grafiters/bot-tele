@@ -1,0 +1,58 @@
+# Konfigurasi service untuk bot Telegram.
+#
+# Cara nambah service baru: tinggal tambah satu entry baru di bawah "services",
+# tidak perlu ubah kode bot sama sekali. Setelah edit file ini, kirim command
+# /reload ke bot (tidak perlu restart container) supaya perubahan langsung kepakai.
+#
+# Field per service:
+#   id      : nama yang muncul di tombol Telegram & dipakai sebagai key internal
+#   pull    : make target untuk git pull repo terkait (wajib)
+#   build   : make target untuk build image (opsional -- kosongkan/hapus baris
+#             ini kalau service tidak punya proses build sendiri)
+#   up      : make target untuk docker compose up (wajib)
+#   log     : nama container, dipakai untuk `make log SERVICE=<log>` (wajib)
+#   deploy  : make target deploy-* yang sudah mencakup pull->build->up sendiri
+#             (opsional). Kalau diisi, /deploy bot cukup jalankan target ini saja.
+#             Kalau dikosongkan, bot akan menyusun sendiri: pull (+ build kalau
+#             ada) + up, dijalankan berurutan sebagai beberapa step.
+
+services:
+  - id: service-arlods
+    pull: pull-service-arlods
+    build: build-service-arlods-p3
+    up: arlods-p3
+    log: service-arlods-p3
+    deploy: deploy-service-arlods
+
+  - id: main-service
+    pull: pull-opra-main-service-bri
+    up: main-service
+    log: main-service
+    
+  - id: main-ui
+    pull: pull-opra-main-ui
+    build: build-main-ui-p3
+    up: main-ui-p3
+    log: main-ui-p3
+    deploy: deploy-opra-main-ui
+
+  - id: bcv-ui
+    pull: pull-bcv-ui
+    build: build-bcv-ui-p3
+    up: bcv-ui-p3
+    log: bcv-ui-p3
+    deploy: deploy-bcv-ui
+
+  - id: main-ui-p2
+    pull: pull-opra-main-ui-p2
+    build: build-main-ui-p2
+    up: main-ui-p2
+    log: main-ui-p2
+    deploy: deploy-main-ui-p2
+
+  - id: bcv-ui-p2
+    pull: pull-bcv-ui-p2
+    build: build-bcv-ui-p2
+    up: bcv-ui-p2
+    log: bcv-ui-p2
+    deploy: deploy-bcv-ui-p2

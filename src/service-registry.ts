@@ -1,64 +1,119 @@
-// Mapping ini sengaja di-hardcode sesuai isi Makefile project (bukan di-scan
-// otomatis dari server), karena nama repo (untuk pull), target build, target up,
-// dan nama container (untuk log) semuanya berbeda-beda per service dan tidak bisa
-// ditebak hanya dari nama folder.
-//
-// Kalau nanti Makefile berubah (ada service baru, atau target berubah nama),
-// cukup update array SERVICES di bawah ini.
+import fs from "node:fs";
+import path from "node:path";
+import YAML from "yaml";
+
+// Hanya izinkan huruf, angka, titik, dash, underscore -- semua field di YAML
+// ini dipakai langsung untuk membangun command shell (make <target>), jadi
+// tetap divalidasi supaya tidak ada celah command injection walaupun sumbernya
+// dari file config, bukan input Telegram.
+const SAFE_VALUE = /^[A-Za-z0-9_.-]+$/;
+
 export interface ServiceDefinition {
-  // Dipakai sebagai label tombol di Telegram & key internal (callback data)
   id: string;
-  // make target untuk git pull repo terkait, contoh "pull-service-arlods"
   pullTarget: string;
-  // make target untuk build image, contoh "build-service-arlods-p3".
-  // Opsional -- beberapa service (misal main-service) tidak punya target build sendiri.
   buildTarget?: string;
-  // make target untuk docker compose up, contoh "arlods-p3"
   upTarget: string;
-  // nama container, dipakai untuk `make log SERVICE=<container>`
   logService: string;
-  // Opsional: kalau Makefile sudah punya target deploy-* sendiri (yang di
-  // dalamnya menjalankan pull -> build -> up), /deploy cukup panggil target
-  // tunggal ini. Kalau tidak diisi, bot menyusun langkahnya sendiri dari
-  // pullTarget (+ buildTarget kalau ada) + upTarget.
   deployTarget?: string;
 }
 
-export const SERVICES: ServiceDefinition[] = [
-  {
-    id: "service-arlods",
-    pullTarget: "pull-service-arlods",
-    buildTarget: "build-service-arlods-p3",
-    upTarget: "arlods-p3",
-    logService: "service-arlods-p3",
-    deployTarget: "deploy-service-arlods",
-  },
-  {
-    id: "main-service",
-    pullTarget: "pull-opra-main-service-bri",
-    // tidak ada target build atau deploy khusus untuk main-service di Makefile
-    upTarget: "main-service",
-    logService: "main-service",
-  },
-  {
-    id: "main-ui",
-    pullTarget: "pull-opra-main-ui",
-    buildTarget: "build-main-ui-p3",
-    upTarget: "main-ui-p3",
-    logService: "main-ui-p3",
-    deployTarget: "deploy-opra-main-ui",
-  },
-  {
-    id: "bcv-ui",
-    pullTarget: "pull-bcv-ui",
-    buildTarget: "build-bcv-ui-p3",
-    upTarget: "bcv-ui-p3",
-    logService: "bcv-ui-p3",
-    deployTarget: "deploy-bcv-ui",
-  },
-];
+interface RawServiceEntry {
+  id?: string;
+  pull?: string;
+  build?: string;
+  up?: string;
+  log?: string;
+  deploy?: string;
+}
+
+interface RawConfig {
+  services?: RawServiceEntry[];
+}
+
+const CONFIG_PATH = process.env.SERVICES_CONFIG_PATH
+  ? path.resolve(process.env.SERVICES_CONFIG_PATH)
+  : path.resolve(process.cwd(), "config", "services.yml");
+
+function validate(value: string | undefined, field: string, serviceId: string): string | undefined {
+  if (value === undefined) return undefined;
+
+  if (!SAFE_VALUE.test(value)) {
+    throw new Error(
+      `Field "${field}" pada service "${serviceId}" mengandung karakter tidak valid: "${value}" ` +
+        `(hanya boleh huruf, angka, titik, dash, underscore)`
+    );
+  }
+
+  return value;
+}
+
+function loadServices(): ServiceDefinition[] {
+  let raw: string;
+
+  try {
+    raw = fs.readFileSync(CONFIG_PATH, "utf-8");
+  } catch (error) {
+    throw new Error(`Gagal membaca file config service di ${CONFIG_PATH}: ${(error as Error).message}`);
+  }
+
+  let parsed: RawConfig;
+
+  try {
+    parsed = (YAML.parse(raw) as RawConfig) ?? {};
+  } catch (error) {
+    throw new Error(`Gagal parse ${CONFIG_PATH} sebagai YAML: ${(error as Error).message}`);
+  }
+
+  if (!Array.isArray(parsed.services) || parsed.services.length === 0) {
+    throw new Error(`${CONFIG_PATH} tidak valid: field "services" wajib berupa list yang tidak kosong`);
+  }
+
+  const services = parsed.services.map((entry, index) => {
+    const context = entry.id ?? `index ${index}`;
+
+    if (!entry.id) throw new Error(`services[${index}] di ${CONFIG_PATH} wajib punya field "id"`);
+    if (!entry.pull) throw new Error(`Service "${context}" wajib punya field "pull"`);
+    if (!entry.up) throw new Error(`Service "${context}" wajib punya field "up"`);
+    if (!entry.log) throw new Error(`Service "${context}" wajib punya field "log"`);
+
+    const id = validate(entry.id, "id", context)!;
+
+    return {
+      id,
+      pullTarget: validate(entry.pull, "pull", context)!,
+      buildTarget: validate(entry.build, "build", context),
+      upTarget: validate(entry.up, "up", context)!,
+      logService: validate(entry.log, "log", context)!,
+      deployTarget: validate(entry.deploy, "deploy", context),
+    };
+  });
+
+  const ids = services.map((s) => s.id);
+  const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
+  if (duplicates.length > 0) {
+    throw new Error(`${CONFIG_PATH} punya id service duplikat: ${[...new Set(duplicates)].join(", ")}`);
+  }
+
+  return services;
+}
+
+// Dimuat sekali saat startup. Kalau file YAML rusak/tidak ada, bot sengaja
+// langsung gagal start (fail fast) supaya error konfigurasi ketahuan dari awal,
+// bukan baru muncul saat user pertama kali klik /log atau /deploy.
+let cachedServices: ServiceDefinition[] = loadServices();
+
+export function getServices(): ServiceDefinition[] {
+  return cachedServices;
+}
+
+// Dipanggil oleh command /reload supaya perubahan di services.yml langsung
+// kepakai tanpa perlu restart container.
+export function reloadServices(): ServiceDefinition[] {
+  cachedServices = loadServices();
+  return cachedServices;
+}
 
 export function findService(id: string | undefined): ServiceDefinition | undefined {
   if (!id) return undefined;
-  return SERVICES.find((service) => service.id === id);
+  return cachedServices.find((service) => service.id === id);
 }

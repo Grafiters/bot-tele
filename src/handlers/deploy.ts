@@ -1,26 +1,26 @@
 import { Markup } from "telegraf";
 import type { Context } from "telegraf";
-import { SERVICES, findService, type ServiceDefinition } from "../service-registry";
+import { getServices, findService, type ServiceDefinition } from "../service-registry";
 import { runRemoteCommand } from "../ssh-client";
 import { sendLongMessage } from "../utils/send-long-message";
 
 function serviceKeyboard(prefix: string) {
   return Markup.inlineKeyboard(
-    SERVICES.map((service) => [Markup.button.callback(service.id, `${prefix}:${service.id}`)])
+    getServices().map((service) => [Markup.button.callback(service.id, `${prefix}:${service.id}`)])
   );
 }
 
 export async function handleDeployCommand(ctx: Context): Promise<void> {
   await ctx.reply(
-    "Pilih service yang ingin di-deploy (pull -> build (kalau ada) -> up):",
+    "Pilih service yang ingin di-deploy:",
     serviceKeyboard("deploy-select")
   );
 }
 
-// Bangun urutan step deploy dari registry:
-// - Kalau service punya deployTarget (Makefile sudah punya target deploy-* sendiri
-//   yang di dalamnya menjalankan pull -> build -> up), cukup 1 step: panggil target itu.
-// - Kalau tidak, bot susun sendiri: pull (+ build kalau ada) + up.
+// Kalau service punya deployTarget di config/services.yml (Makefile sudah
+// punya target deploy-* sendiri yang mencakup pull -> build -> up), cukup
+// jalankan 1 command itu. Kalau tidak diisi, bot susun sendiri dari
+// pullTarget (+ buildTarget kalau ada) + upTarget.
 function deploySteps(service: ServiceDefinition) {
   if (service.deployTarget) {
     return [{ label: "deploy", command: `make ${service.deployTarget}` }];

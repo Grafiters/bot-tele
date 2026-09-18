@@ -15,6 +15,7 @@ import {
   handleDeployCancelCallback,
 } from "./handlers/deploy";
 import { handleServicesCommand } from "./handlers/services";
+import { handleReloadCommand } from "./handlers/reload";
 
 const bot = new Telegraf(config.botToken);
 
@@ -26,7 +27,8 @@ bot.start((ctx) =>
       "/log - cek log salah satu service\n" +
       "/run - up ulang (docker compose up --force-recreate) salah satu service\n" +
       "/deploy - deploy service (pull -> build kalau ada -> up)\n" +
-      "/services - lihat mapping pull/build/up/log per service"
+      "/services - lihat mapping pull/build/up/log per service\n" +
+      "/reload - baca ulang config/services.yml tanpa restart bot"
   )
 );
 
@@ -34,6 +36,7 @@ bot.command("log", handleLogCommand);
 bot.command("run", handleRunCommand);
 bot.command("deploy", handleDeployCommand);
 bot.command("services", handleServicesCommand);
+bot.command("reload", handleReloadCommand);
 
 bot.action(/^log:/, handleLogCallback);
 bot.action(/^run-select:/, handleRunSelectCallback);

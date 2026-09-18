@@ -1,11 +1,27 @@
 # Telegram Log & Deploy Bot
 
-Bot Telegram untuk cek log, up ulang service, dan deploy (pull -> build -> up)
-di server, sesuai target-target yang ada di Makefile project.
+Bot Telegram untuk cek log, up ulang service, dan deploy service di server,
+sesuai target-target yang ada di Makefile project.
 
-## Service yang didukung
+## Menambah/mengubah service
 
-Mapping ini di-hardcode di `src/service-registry.ts`, sesuai isi Makefile project:
+Semua service dikonfigurasi di **`config/services.yml`** — bukan di kode.
+Untuk menambah service baru, tinggal tambah entry baru di file itu, contoh:
+
+```yaml
+services:
+  - id: nama-service-baru
+    pull: pull-nama-repo       # wajib
+    build: build-target-image  # opsional
+    up: nama-target-up         # wajib
+    log: nama-container        # wajib, dipakai untuk `make log SERVICE=...`
+    deploy: deploy-nama-service # opsional, kalau sudah ada target deploy-* di Makefile
+```
+
+Setelah diedit, kirim `/reload` ke bot supaya perubahan langsung kepakai
+**tanpa perlu restart container**.
+
+Isi default `config/services.yml` saat ini, sesuai Makefile project:
 
 | Service (tombol) | pull | build | up | log SERVICE= | deploy |
 |---|---|---|---|---|---|
@@ -13,34 +29,42 @@ Mapping ini di-hardcode di `src/service-registry.ts`, sesuai isi Makefile projec
 | main-service | `pull-opra-main-service-bri` | *(tidak ada)* | `main-service` | `main-service` | *(disusun manual: pull -> up)* |
 | main-ui | `pull-opra-main-ui` | `build-main-ui-p3` | `main-ui-p3` | `main-ui-p3` | `deploy-opra-main-ui` (1 step) |
 | bcv-ui | `pull-bcv-ui` | `build-bcv-ui-p3` | `bcv-ui-p3` | `bcv-ui-p3` | `deploy-bcv-ui` (1 step) |
+| main-ui-p2 | `pull-opra-main-ui-p2` | `build-main-ui-p2` | `main-ui-p2` | `main-ui-p2` | `deploy-main-ui-p2` (1 step) |
+| bcv-ui-p2 | `pull-bcv-ui-p2` | `build-bcv-ui-p2` | `bcv-ui-p2` | `bcv-ui-p2` | `deploy-bcv-ui-p2` (1 step) |
 
-Kalau Makefile berubah (service baru, atau nama target berubah), cukup update
-array `SERVICES` di `src/service-registry.ts` — tidak perlu ubah handler lain.
+> Catatan: `main-service-p2` sengaja belum ditambahkan sebagai service di bot,
+> karena target `make main-service-p2` ada di Makefile tapi service tersebut
+> belum terdefinisi di `docker-compose.yml` — akan gagal kalau dijalankan.
+> Tambahkan manual di `config/services.yml` begitu service-nya sudah ada di compose.
 
 ## Cara kerja
 
-- `/services` → menampilkan mapping pull/build/up/log di atas langsung dari bot
-  (tidak perlu SSH, karena datanya statis).
+- `/services` → menampilkan mapping pull/build/up/log/deploy di atas langsung
+  dari `config/services.yml` (tidak perlu SSH).
+- `/reload` → baca ulang `config/services.yml` tanpa restart container. Kalau
+  file rusak/format salah, bot memberi tahu errornya dan tetap memakai
+  konfigurasi lama sampai file diperbaiki.
 - `/log` → tombol pilihan service → bot SSH ke server dan jalankan
   `make log SERVICE=<container>` (tail 1500 baris sesuai target `log` di Makefile).
 - `/run` → tombol pilihan service → minta konfirmasi → bot jalankan
   `make <up-target>` (docker compose up --force-recreate untuk container terkait).
 - `/deploy` → tombol pilihan service → minta konfirmasi → bot jalankan:
-  - **Kalau Makefile sudah punya target `deploy-*` untuk service tersebut**
-    (`deploy-service-arlods`, `deploy-opra-main-ui`, `deploy-bcv-ui`) — bot cukup
-    jalankan **1 command** itu, karena di dalamnya sudah berurutan pull -> build -> up.
-  - **Kalau tidak ada target `deploy-*`** (saat ini hanya `main-service`) — bot
-    menyusun sendiri langkahnya: `make <pull-target>` lalu `make <up-target>`
-    (tanpa build, karena memang tidak ada target build untuk service ini).
+  - **Kalau field `deploy` diisi di `services.yml`** — bot cukup jalankan
+    **1 command** `make <deploy-target>` itu saja, karena target tersebut di
+    Makefile sudah mencakup pull -> build -> up.
+  - **Kalau field `deploy` dikosongkan** (saat ini `main-service`) — bot
+    menyusun sendiri langkahnya: `make <pull-target>` (+ `make <build-target>`
+    kalau diisi) lalu `make <up-target>`.
 
   Kalau ada step yang gagal (exit code bukan 0) atau error koneksi, proses
   langsung dihentikan dan step berikutnya (kalau multi-step) tidak dijalankan.
 - Hanya chat ID yang ada di `ALLOWED_CHAT_IDS` yang bisa memakai bot ini.
 - **User tidak pernah mengetik nama service atau command apa pun** — semua
   interaksi (`/log`, `/run`, `/deploy`) berbentuk tombol, dan command shell
-  yang dijalankan selalu berasal dari mapping tetap di `service-registry.ts`,
-  bukan dari input bebas. Ini membuatnya aman dari command injection karena
-  tidak ada string dari user yang pernah masuk ke command shell.
+  yang dijalankan selalu berasal dari `config/services.yml`, bukan dari input
+  bebas di chat. Nilai di file itu juga tetap divalidasi (hanya huruf/angka/
+  titik/dash/underscore) sebelum dipakai membangun command shell, sebagai
+  lapis keamanan tambahan kalau file config diedit sembarangan.
 
 ## Setup
 
@@ -53,6 +77,10 @@ array `SERVICES` di `src/service-registry.ts` — tidak perlu ubah handler lain.
 3. Cara mendapatkan chat ID grup: tambahkan bot ke grup, kirim pesan apa saja,
    lalu cek lewat `https://api.telegram.org/bot<TOKEN>/getUpdates` — lihat field
    `chat.id` (biasanya berupa angka negatif untuk grup).
+4. Sesuaikan `config/services.yml` kalau perlu (defaultnya sudah mengikuti
+   Makefile project ini). File ini otomatis di-mount sebagai volume lewat
+   `docker-compose.yml`, jadi edit file-nya lalu kirim `/reload` ke bot — tidak
+   perlu `docker compose build` ulang.
 
 ## Menjalankan dengan Docker
 
